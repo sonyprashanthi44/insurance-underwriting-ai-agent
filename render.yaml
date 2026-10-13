@@ -15,3 +15,7 @@ services:
         value: underwriter@demo.com
       - key: DEMO_USER_PASSWORD
         value: Demo@1234
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash

@@ -1,10 +1,12 @@
-"""Hybrid underwriting engine: deterministic risk rules + optional LLM narrative."""
+"""Hybrid underwriting: deterministic rules + optional Gemini narrative (token-light)."""
 
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+import httpx
 
 from app.config import get_settings
 
@@ -36,11 +38,62 @@ class UnderwritingResult:
     risk_score: float
     explanation: str
     suggested_premium: float
+    suggestions: list[str] = field(default_factory=list)
 
 
 def _base_rate(product_line: str) -> float:
     rates = {"auto": 0.045, "home": 0.012, "life": 0.008, "commercial": 0.025}
     return rates.get(product_line.lower(), 0.02)
+
+
+def _rule_suggestions(
+    recommendation: str,
+    score: float,
+    product: str,
+    credit: int,
+    claims: int,
+    ratio: float | None,
+    matched_hazards: set[str],
+    occupation: str,
+) -> list[str]:
+    tips: list[str] = []
+    if recommendation == "approve":
+        tips.append("Issue at standard terms; document clean credit/claims drivers in file notes.")
+        if score < 30:
+            tips.append("Eligible for preferred-tier pricing if carrier guidelines allow.")
+    elif recommendation == "refer":
+        tips.append("Route to senior UW; request supporting docs before binding.")
+        tips.append("Consider conditional offer (higher deductible, exclusion, or surcharge).")
+    else:
+        tips.append("Decline or counter with reduced limits only if appetite allows.")
+        tips.append("Log adverse action reasons for audit / fair-lending review.")
+
+    if credit < 680:
+        tips.append("Verify credit attributes and recent score changes before finalizing.")
+    if claims >= 2:
+        tips.append("Pull full loss runs (3-5 years) and note cause codes.")
+    if ratio is not None and ratio > 8:
+        tips.append("Validate coverage need vs. income/assets; consider lower limits.")
+    if matched_hazards:
+        tips.append("Mitigation checklist: " + ", ".join(sorted(matched_hazards)) + ".")
+    if occupation in HIGH_RISK_OCCUPATIONS:
+        tips.append("Confirm job duties and safety controls for hazard-class occupation.")
+    if product == "home" and "flood zone" in matched_hazards:
+        tips.append("Require flood questionnaire / elevation certificate if writing property.")
+    if product == "auto" and "dui" in matched_hazards:
+        tips.append("Confirm DUI date, completion of programs, and SR-22 needs.")
+    if product == "life" and "smoking" in matched_hazards:
+        tips.append("Order cotinine test and apply smoker rates if confirmed.")
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tips:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+        if len(out) >= 6:
+            break
+    return out
 
 
 def score_application(payload: dict) -> UnderwritingResult:
@@ -57,7 +110,6 @@ def score_application(payload: dict) -> UnderwritingResult:
     factors_raw = payload.get("risk_factors") or ""
     factors = {f.strip().lower() for f in re.split(r"[,;|]", factors_raw) if f.strip()}
 
-    # Credit quality
     if credit >= 750:
         score -= 12
         reasons.append(f"Strong credit score ({credit}) reduces expected loss frequency.")
@@ -71,7 +123,6 @@ def score_application(payload: dict) -> UnderwritingResult:
         score += 22
         reasons.append(f"Low credit score ({credit}) is a material underwriting concern.")
 
-    # Claims history
     if claims == 0:
         score -= 8
         reasons.append("Clean prior-claims history supports standard acceptance.")
@@ -82,7 +133,6 @@ def score_application(payload: dict) -> UnderwritingResult:
         score += 8 + (claims - 1) * 10
         reasons.append(f"{claims} prior claims indicate elevated loss propensity.")
 
-    # Age bands by product
     if product == "auto":
         if age < 25:
             score += 15
@@ -100,7 +150,7 @@ def score_application(payload: dict) -> UnderwritingResult:
             score -= 6
             reasons.append("Favorable age band for life mortality assumptions.")
 
-    # Affordability / moral hazard proxy
+    ratio: float | None = None
     if income > 0:
         ratio = coverage / income
         if ratio > 15:
@@ -131,65 +181,84 @@ def score_application(payload: dict) -> UnderwritingResult:
     else:
         recommendation = "decline"
 
-    # Premium indication (illustrative only)
     load = 1.0 + (score / 100.0)
     if claims:
         load += 0.08 * claims
     premium = round(coverage * _base_rate(product) * load, 2)
 
-    explanation = _maybe_llm_explanation(payload, recommendation, score, reasons, premium)
+    suggestions = _rule_suggestions(
+        recommendation, score, product, credit, claims, ratio, matched_hazards, occupation
+    )
+
+    explanation = _maybe_gemini_narrative(payload, recommendation, score, reasons, premium, suggestions)
     if not explanation:
         explanation = (
-            f"Deterministic underwriting engine scored this risk at {score}/100 and recommends "
+            f"Rule engine scored this risk at {score}/100 and recommends "
             f"**{recommendation.upper()}**. Key drivers: " + " ".join(reasons) +
             f" Indicative annual premium: ${premium:,.2f}. "
-            "This is decision-support only; final authority remains with the licensed underwriter."
+            "Advisory only — final authority remains with the licensed underwriter."
         )
 
-    return UnderwritingResult(recommendation, score, explanation, premium)
+    return UnderwritingResult(recommendation, score, explanation, premium, suggestions)
 
 
-def _maybe_llm_explanation(
+def _maybe_gemini_narrative(
     payload: dict,
     recommendation: str,
     score: float,
     reasons: list[str],
     premium: float,
+    suggestions: list[str],
 ) -> str:
+    """Short Gemini rewrite; fails soft to empty string (rules still apply)."""
     settings = get_settings()
-    if not settings.openai_api_key:
+    api_key = (settings.gemini_api_key or "").strip()
+    if not api_key:
         return ""
 
-    try:
-        from openai import OpenAI
+    user_blob = {
+        "rec": recommendation,
+        "score": score,
+        "prem": premium,
+        "drivers": reasons[:6],
+        "next": suggestions[:4],
+        "app": {
+            "age": payload.get("applicant_age"),
+            "occ": payload.get("occupation"),
+            "line": payload.get("product_line"),
+            "cov": payload.get("coverage_amount"),
+            "inc": payload.get("annual_income"),
+            "credit": payload.get("credit_score"),
+            "claims": payload.get("prior_claims"),
+            "flags": payload.get("risk_factors") or "",
+            "zip": payload.get("property_zip") or "",
+        },
+    }
+    prompt = (
+        "Insurance UW aide. Rewrite a tight rationale (<=120 words) for staff. "
+        "Use only given facts. Neutral audit tone. End: AI is advisory only. "
+        f"DATA:{json.dumps(user_blob, separators=(',', ':'))}"
+    )
 
-        client = OpenAI(api_key=settings.openai_api_key)
-        prompt = {
-            "task": "Write a concise underwriting rationale for insurance staff.",
-            "recommendation": recommendation,
-            "risk_score": score,
-            "suggested_premium": premium,
-            "rule_drivers": reasons,
-            "application": payload,
-            "tone": "professional, neutral, audit-friendly",
-            "constraints": [
-                "Do not invent facts not present in inputs",
-                "State that AI is advisory only",
-                "Keep under 180 words",
-            ],
-        }
-        resp = client.chat.completions.create(
-            model=settings.openai_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an insurance underwriting assistant that explains risk decisions clearly.",
-                },
-                {"role": "user", "content": json.dumps(prompt)},
-            ],
-            temperature=0.2,
-            max_tokens=280,
-        )
-        return (resp.choices[0].message.content or "").strip()
+    model = settings.gemini_model or "gemini-2.0-flash"
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent"
+    )
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 180,
+        },
+    }
+    try:
+        with httpx.Client(timeout=12.0) as client:
+            resp = client.post(url, params={"key": api_key}, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts).strip()
+        return text
     except Exception:
         return ""

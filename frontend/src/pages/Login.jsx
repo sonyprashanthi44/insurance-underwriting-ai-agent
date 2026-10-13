@@ -27,7 +27,7 @@ export default function Login({ onLogin }) {
       <form className="login-card" onSubmit={handleSubmit}>
         <div className="brand-mark lg">UW</div>
         <h1>Insurance Underwriting AI</h1>
-        <p className="muted">AI recommends. Licensed underwriters decide.</p>
+        <p className="muted">Rules + Gemini assist. You decide.</p>
         {error && <div className="alert">{error}</div>}
         <label>Work email
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
@@ -41,3 +41,4 @@ export default function Login({ onLogin }) {
     </div>
   );
 }
+

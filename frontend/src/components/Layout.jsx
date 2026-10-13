@@ -8,7 +8,7 @@ export default function Layout({ user, onLogout }) {
           <div className="brand-mark">UW</div>
           <div>
             <div className="brand-title">Underwriting AI</div>
-            <div className="brand-sub">Decision Support</div>
+            <div className="brand-sub">Rules + Gemini</div>
           </div>
         </div>
         <nav>
@@ -29,3 +29,4 @@ export default function Layout({ user, onLogout }) {
     </div>
   );
 }
+

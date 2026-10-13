@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -76,6 +77,7 @@ def create_application(
         ai_risk_score=result.risk_score,
         ai_explanation=result.explanation,
         ai_suggested_premium=result.suggested_premium,
+        ai_suggestions=json.dumps(result.suggestions),
         reviewer_id=current_user.id,
     )
     db.add(row)
@@ -106,6 +108,7 @@ def rescore(app_id: int, db: Session = Depends(get_db), _: User = Depends(get_cu
     app.ai_risk_score = result.risk_score
     app.ai_explanation = result.explanation
     app.ai_suggested_premium = result.suggested_premium
+    app.ai_suggestions = json.dumps(result.suggestions)
     db.commit()
     db.refresh(app)
     return app

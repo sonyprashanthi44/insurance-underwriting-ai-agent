@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { decideApplication, getApplication, rescoreApplication } from "../api/client";
 
+function riskTone(score) {
+  if (score < 40) return "low";
+  if (score < 65) return "mid";
+  return "high";
+}
+
 export default function ApplicationDetail() {
   const { id } = useParams();
   const [app, setApp] = useState(null);
@@ -47,13 +53,17 @@ export default function ApplicationDetail() {
   if (!app && !error) return <div className="page">Loading application…</div>;
   if (!app) return <div className="page alert">{error}</div>;
 
+  const tips = Array.isArray(app.ai_suggestions) ? app.ai_suggestions : [];
+  const tone = riskTone(Number(app.ai_risk_score) || 0);
+  const pct = Math.max(0, Math.min(100, Number(app.ai_risk_score) || 0));
+
   return (
     <div className="page">
       <Link className="back" to="/">← Back to queue</Link>
       <header className="page-header">
         <div>
           <h1>{app.application_number}</h1>
-          <p className="muted">{app.applicant_name} · {app.product_line} · status: {app.status}</p>
+          <p className="muted">{app.applicant_name} · <span className="cap">{app.product_line}</span> · status: {app.status}</p>
         </div>
         <button className="btn ghost" disabled={busy} onClick={rescore}>Re-run AI score</button>
       </header>
@@ -84,6 +94,9 @@ export default function ApplicationDetail() {
             <div>
               <span className="label">Risk score</span>
               <div className="score">{app.ai_risk_score}<small>/100</small></div>
+              <div className={`risk-meter ${tone}`} aria-hidden="true">
+                <span style={{ width: `${pct}%` }} />
+              </div>
             </div>
             <div>
               <span className="label">Indicative premium</span>
@@ -91,6 +104,14 @@ export default function ApplicationDetail() {
             </div>
           </div>
           <p className="explanation">{app.ai_explanation}</p>
+          {tips.length > 0 && (
+            <div className="tips-box">
+              <h3>Suggested next steps</h3>
+              <ul>
+                {tips.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </div>
+          )}
           <p className="hint">Advisory only — final underwriting authority stays with the human reviewer.</p>
         </section>
 
@@ -102,7 +123,7 @@ export default function ApplicationDetail() {
           <div className="btn-row">
             <button className="btn success" disabled={busy} onClick={() => decide("approved")}>Approve</button>
             <button className="btn warn" disabled={busy} onClick={() => decide("referred")}>Refer</button>
-<button className="btn danger" disabled={busy} onClick={() => decide("declined")}>Decline</button>
+            <button className="btn danger" disabled={busy} onClick={() => decide("declined")}>Decline</button>
           </div>
           {app.final_decision && (
             <p className="muted">Recorded decision: <strong>{app.final_decision}</strong></p>

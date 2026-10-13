@@ -1,39 +1,58 @@
 # Insurance Underwriting AI Assistant
 
-Decision-support workspace for insurance staff reviewing policy applications. The system scores risk, recommends **approve / refer / decline**, explains the drivers, and suggests an indicative premium — while keeping **final authority with the underwriter**.
+**Human-in-the-loop underwriting workspace** — score policy applications, explain risk drivers, surface next-step suggestions, and keep final authority with the underwriter.
 
-> Built to mirror real policy-management and underwriting workflows (intake → risk review → human decision), with a FastAPI backend, React UI, JWT auth, and an explainable scoring engine.
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](#)
+[![React](https://img.shields.io/badge/UI-React_18-61DAFB?style=flat-square)](#)
+[![Gemini](https://img.shields.io/badge/AI-Gemini_optional-8E75B2?style=flat-square)](#)
+[![Docker](https://img.shields.io/badge/Deploy-Docker_/_Render-2E8B57?style=flat-square)](#)
+
+---
+
+## Why this project
+
+Mirrors real intake → risk review → decision workflows:
+
+| Step | What happens |
+| --- | --- |
+| Intake | Auto / home / life / commercial applications |
+| Score | Deterministic rules engine (works offline) |
+| Explain | Optional **Google Gemini** narrative (token-light) |
+| Guide | Actionable **next-step suggestions** for staff |
+| Decide | Underwriter approves / refers / declines with notes |
+
+> AI is **advisory only**. Licensed humans own the decision.
+
+---
 
 ## Features
 
-- JWT-authenticated underwriter workspace
-- Application intake across **auto / home / life / commercial**
-- Hybrid AI underwriting engine (deterministic rules + optional OpenAI narrative)
-- Risk score, recommendation, explanation, and premium indication
-- Queue dashboard with status filters and portfolio stats
-- Human decision capture (approve / refer / decline) with notes
-- Seeded demo book of business for instant walkthroughs
-- Works fully offline without an LLM key
+- JWT underwriter login + protected API
+- Queue dashboard with portfolio stats & status filters
+- Risk score, recommendation, premium indication, **suggestion checklist**
+- Risk meter UI on application detail
+- Seeded demo book of business
+- Single Docker image (API + built React UI)
+- Works **without** any LLM key
 
 ## Tech stack
 
 | Layer | Choice |
 | --- | --- |
 | API | FastAPI, Pydantic, SQLAlchemy |
-| Auth | OAuth2 password flow + JWT (python-jose, passlib/bcrypt) |
-| DB | SQLite by default (swap `DATABASE_URL` for Postgres) |
+| Auth | OAuth2 password flow + JWT |
+| DB | SQLite default (Postgres via `DATABASE_URL`) |
 | UI | React 18, React Router, Vite |
-| AI | Rule-based risk engine; optional OpenAI explanation layer |
-| Deploy | Docker single-service image (API + built UI) |
+| AI | Rules engine + optional Gemini (`gemini-2.0-flash`) |
+| Deploy | Docker · Render Blueprint (`render.yaml`) |
+
+---
 
 ## Quick start (local)
 
-### Prerequisites
+**Prereqs:** Python 3.11+, Node 18+
 
-- Python 3.11+
-- Node.js 18+
-
-### 1) Backend
+### Backend
 
 ```bash
 cd backend
@@ -49,10 +68,10 @@ copy ..\.env.example ..\.env   # or: cp ../.env.example ../.env
 uvicorn app.main:app --reload --app-dir . --port 8000
 ```
 
-API docs: http://127.0.0.1:8000/docs  
-Health: http://127.0.0.1:8000/api/health
+- API docs: http://127.0.0.1:8000/docs  
+- Health: http://127.0.0.1:8000/api/health  
 
-### 2) Frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -69,54 +88,88 @@ Email:    underwriter@demo.com
 Password: Demo@1234
 ```
 
-## Docker (API + UI)
+---
+
+## Optional Gemini explanations
+
+Get a key from [Google AI Studio](https://aistudio.google.com/apikey), then set in `.env`:
+
+```env
+GEMINI_API_KEY=your_key_here
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+- Compact prompts + `maxOutputTokens=180` keep usage low  
+- If the key is missing or the call fails, **rules still return** full scores, rationales, and suggestions  
+
+---
+
+## Docker
 
 ```bash
 docker build -t underwriting-ai .
-docker run --rm -p 8000:8000 underwriting-ai
+docker run --rm -p 8000:8000 -e GEMINI_API_KEY=your_key underwriting-ai
 ```
 
 Open http://127.0.0.1:8000
 
-## Optional LLM explanations
+---
 
-Set in `.env`:
+## Deploy on Render
 
-```env
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-```
+1. Push this repo to GitHub  
+2. Render → **New** → **Blueprint** (or Web Service + Docker)  
+3. Health check: `/api/health`  
+4. Env vars:
 
-If unset, the deterministic engine still returns full recommendations and rationales.
+| Key | Value |
+| --- | --- |
+| `SECRET_KEY` | generate |
+| `DATABASE_URL` | `sqlite:///./underwriting.db` |
+| `CORS_ORIGINS` | `*` |
+| `DEMO_USER_EMAIL` | `underwriter@demo.com` |
+| `DEMO_USER_PASSWORD` | `Demo@1234` |
+| `GEMINI_API_KEY` | your key (optional) |
+| `GEMINI_MODEL` | `gemini-2.0-flash` |
+
+Container listens on `$PORT` (Render) or `8000` locally.
+
+**Free tier:** cold starts; SQLite may reset on redeploy (fine for demos).
+
+---
 
 ## API surface
 
 | Method | Path | Description |
 | --- | --- | --- |
-| POST | `/api/auth/login` | OAuth2 form login → JWT |
+| POST | `/api/auth/login` | OAuth2 form → JWT |
 | GET | `/api/auth/me` | Current user |
 | GET | `/api/applications` | List / filter queue |
 | GET | `/api/applications/stats` | Dashboard metrics |
-| POST | `/api/applications` | Create + AI score |
-| GET | `/api/applications/{id}` | Detail |
+| POST | `/api/applications` | Create + score |
+| GET | `/api/applications/{id}` | Detail (+ suggestions) |
 | POST | `/api/applications/{id}/rescore` | Re-run engine |
 | PATCH | `/api/applications/{id}/decision` | Record UW decision |
+| GET | `/api/health` | Liveness (+ `gemini_configured`) |
+
+---
 
 ## Project structure
 
 ```
-backend/app/           FastAPI app, auth, models, routers, scoring service
-frontend/src/          React workspace (login, queue, detail, intake)
-Dockerfile             Production image build
-.env.example           Configuration template
+backend/app/     FastAPI, auth, models, routers, scoring service
+frontend/src/    React workspace (login, queue, detail, intake)
+Dockerfile       Multi-stage production image
+render.yaml      Render Blueprint
+.env.example     Config template
 ```
 
 ## Design principles
 
-1. **Assist, don’t replace** — AI is advisory; humans own the decision.
-2. **Explainability** — every score ships with readable drivers.
-3. **Auditability** — decisions and notes are persisted with the application.
-4. **Portability** — SQLite + Docker for demos; Postgres-ready via env.
+1. **Assist, don’t replace** — AI advises; humans decide  
+2. **Explainability** — scores ship with drivers + next steps  
+3. **Auditability** — decisions and notes are stored  
+4. **Portability** — SQLite + Docker demos; Postgres-ready  
 
 ## License
 

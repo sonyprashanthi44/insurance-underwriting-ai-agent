@@ -28,7 +28,7 @@ export default function Dashboard() {
       <header className="page-header">
         <div>
           <h1>Underwriting queue</h1>
-          <p className="muted">Review AI risk scores, explanations, and record final decisions.</p>
+          <p className="muted">Score risk, review Gemini-assisted rationales, and lock human decisions.</p>
         </div>
         <Link className="btn primary" to="/applications/new">+ New application</Link>
       </header>
@@ -37,23 +37,25 @@ export default function Dashboard() {
 
       {stats && (
         <div className="stat-grid">
-          <div className="stat"><span>Total</span><strong>{stats.total}</strong></div>
-          <div className="stat"><span>Pending</span><strong>{stats.pending}</strong></div>
-          <div className="stat"><span>Approved</span><strong>{stats.approved}</strong></div>
-          <div className="stat"><span>Referred</span><strong>{stats.referred}</strong></div>
-          <div className="stat"><span>Declined</span><strong>{stats.declined}</strong></div>
+          <div className="stat"><span>Total book</span><strong>{stats.total}</strong></div>
+          <div className="stat accent"><span>Pending review</span><strong>{stats.pending}</strong></div>
+          <div className="stat good"><span>Approved</span><strong>{stats.approved}</strong></div>
+          <div className="stat warn"><span>Referred</span><strong>{stats.referred}</strong></div>
+          <div className="stat bad"><span>Declined</span><strong>{stats.declined}</strong></div>
           <div className="stat"><span>Avg risk</span><strong>{stats.avg_risk_score}</strong></div>
         </div>
       )}
 
-      <div className="toolbar">
-        <select value={status} onChange={(e) => { setStatus(e.target.value); load(e.target.value); }}>
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="referred">Referred</option>
-          <option value="declined">Declined</option>
-        </select>
+      <div className="toolbar card-lite">
+        <label className="inline-filter">Status
+          <select value={status} onChange={(e) => { setStatus(e.target.value); load(e.target.value); }}>
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="referred">Referred</option>
+            <option value="declined">Declined</option>
+          </select>
+        </label>
       </div>
 
       <div className="table-wrap">
@@ -71,13 +73,15 @@ export default function Dashboard() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} className="click-row">
                 <td><Link to={`/applications/${r.id}`}>{r.application_number}</Link></td>
                 <td>{r.applicant_name}</td>
                 <td className="cap">{r.product_line}</td>
                 <td>${Number(r.coverage_amount).toLocaleString()}</td>
                 <td><span className={badge(r.ai_recommendation)}>{r.ai_recommendation}</span></td>
-                <td><span className="mono">{r.ai_risk_score}</span></td>
+                <td>
+                  <span className="mono risk-pill">{r.ai_risk_score}</span>
+                </td>
                 <td><span className={badge(r.status)}>{r.status}</span></td>
               </tr>
             ))}

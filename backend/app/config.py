@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-me"
     access_token_expire_minutes: int = 480
     database_url: str = "sqlite:///./underwriting.db"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    # legacy aliases still accepted via env if present
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

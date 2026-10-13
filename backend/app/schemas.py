@@ -1,5 +1,7 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field
+from typing import Any
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class Token(BaseModel):
@@ -57,12 +59,30 @@ class ApplicationOut(BaseModel):
     ai_risk_score: float
     ai_explanation: str
     ai_suggested_premium: float
+    ai_suggestions: list[str] = []
     underwriter_notes: str
     final_decision: str
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("ai_suggestions", mode="before")
+    @classmethod
+    def parse_suggestions(cls, v: Any) -> list[str]:
+        if v is None or v == "":
+            return []
+        if isinstance(v, list):
+            return [str(x) for x in v]
+        if isinstance(v, str):
+            try:
+                import json
+                data = json.loads(v)
+                if isinstance(data, list):
+                    return [str(x) for x in data]
+            except Exception:
+                return [v] if v.strip() else []
+        return []
 
 
 class DashboardStats(BaseModel):

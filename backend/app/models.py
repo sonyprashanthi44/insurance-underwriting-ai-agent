@@ -40,6 +40,7 @@ class PolicyApplication(Base):
     ai_risk_score: Mapped[float] = mapped_column(Float, default=0.0)
     ai_explanation: Mapped[str] = mapped_column(Text, default="")
     ai_suggested_premium: Mapped[float] = mapped_column(Float, default=0.0)
+    ai_suggestions: Mapped[str] = mapped_column(Text, default="")  # JSON list of action tips
     underwriter_notes: Mapped[str] = mapped_column(Text, default="")
     final_decision: Mapped[str] = mapped_column(String(50), default="")
     reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

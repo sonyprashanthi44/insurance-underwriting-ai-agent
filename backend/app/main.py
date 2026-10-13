@@ -1,9 +1,11 @@
 from pathlib import Path
+import json
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.auth import hash_password
 from app.config import get_settings
@@ -121,6 +123,7 @@ def seed_db() -> None:
                     ai_risk_score=result.risk_score,
                     ai_explanation=result.explanation,
                     ai_suggested_premium=result.suggested_premium,
+                    ai_suggestions=json.dumps(result.suggestions),
                     reviewer_id=user.id,
                 )
                 db.add(row)
@@ -129,15 +132,29 @@ def seed_db() -> None:
         db.close()
 
 
+def ensure_schema() -> None:
+    """Add new columns on existing SQLite DBs without a full migration tool."""
+    with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            cols = {row[1] for row in conn.execute(text("PRAGMA table_info(policy_applications)"))}
+            if cols and "ai_suggestions" not in cols:
+                conn.execute(text("ALTER TABLE policy_applications ADD COLUMN ai_suggestions TEXT DEFAULT ''"))
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_schema()
     seed_db()
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "underwriting-ai-assistant"}
+    return {
+        "status": "ok",
+        "service": "underwriting-ai-assistant",
+        "gemini_configured": bool(settings.gemini_api_key),
+    }
 
 
 # Serve built React UI when present (single-service deploy)
