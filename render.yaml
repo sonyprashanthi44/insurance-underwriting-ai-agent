@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: underwriting-ai-assistant
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///./underwriting.db
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: DEMO_USER_EMAIL
+        value: underwriter@demo.com
+      - key: DEMO_USER_PASSWORD
+        value: Demo@1234
