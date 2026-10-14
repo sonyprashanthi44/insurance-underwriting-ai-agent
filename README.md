@@ -1,5 +1,11 @@
 # Insurance Underwriting AI Assistant
 
+**The Insurance Underwriting AI Agent repository is a GenAI-powered application designed to automate and simplify insurance risk assessment.
+​Key Components:
+​Underwriting Guidelines Processor: Parses and summarizes dense corporate insurance rules.
+​Risk Evaluation Engine: Evaluates submitted applicant data against the guidelines using an LLM.
+​Interactive UI: Built using Streamlit to give users a clean interface for managing applications and viewing risk evaluations.
+
 **Human-in-the-loop underwriting workspace** — score policy applications, explain risk drivers, surface next-step suggestions, and keep final authority with the underwriter.
 
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](#)
